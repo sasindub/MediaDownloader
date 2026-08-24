@@ -28,7 +28,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 APP_NAME = "Media Downloader"
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 
 # ----------------------------------------------------------------------
 # Dependency check
@@ -40,17 +40,64 @@ except ImportError:
     yt_dlp = None
 
 
+def resource_dir():
+    """Folder holding bundled resources, whether frozen or run from source."""
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def find_ffmpeg():
-    """Return path to ffmpeg, checking PATH first then the app folder."""
+    """Return path to ffmpeg.
+
+    The bundled copy is preferred so a broken or ancient system install
+    cannot break a packaged app. Explicit Homebrew paths are checked last
+    because an app launched from Finder inherits a minimal PATH that does
+    not include /opt/homebrew/bin.
+    """
+    for name in ("ffmpeg.exe", "ffmpeg"):
+        candidate = os.path.join(resource_dir(), "bin", name)
+        if os.path.isfile(candidate):
+            return candidate
+
     found = shutil.which("ffmpeg")
     if found:
         return found
-    here = os.path.dirname(os.path.abspath(__file__))
-    for name in ("ffmpeg.exe", "ffmpeg"):
-        candidate = os.path.join(here, "bin", name)
-        if os.path.isfile(candidate):
-            return candidate
+
+    for path in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg",
+                 "/usr/bin/ffmpeg"):
+        if os.path.isfile(path):
+            return path
+
     return None
+
+
+def settings_path():
+    """Per user settings file, in the conventional place for each OS."""
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "MediaDownloader", "settings.json")
+
+
+def load_settings():
+    try:
+        with open(settings_path()) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(data):
+    try:
+        os.makedirs(os.path.dirname(settings_path()), exist_ok=True)
+        with open(settings_path(), "w") as fh:
+            json.dump(data, fh, indent=2)
+    except OSError:
+        pass
 
 
 # ----------------------------------------------------------------------
@@ -106,6 +153,150 @@ def build_format(quality, apple_safe):
 
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+# ----------------------------------------------------------------------
+# Text shown in the welcome and help windows
+# ----------------------------------------------------------------------
+
+_GATEKEEPER_MAC = """OPENING THE APP ON macOS
+
+This app is not signed with an Apple Developer certificate, so macOS
+will warn you the first time you open it. This is expected. You only
+need to do this once.
+
+On macOS 15 Sequoia and newer
+  1. Drag Media Downloader into your Applications folder.
+  2. Double click it. macOS says it "could not verify" the app.
+     Click Done.
+  3. Open System Settings, go to Privacy and Security, and scroll
+     down to the Security section.
+  4. Next to "Media Downloader was blocked", click Open Anyway.
+  5. Confirm with Touch ID or your password, then click Open Anyway
+     once more.
+
+On macOS 14 Sonoma and older
+  1. Drag Media Downloader into your Applications folder.
+  2. Right click the app and choose Open.
+  3. Click Open in the dialog that appears.
+
+After this first time, the app opens normally by double clicking.
+"""
+
+_GATEKEEPER_WIN = """OPENING THE APP ON WINDOWS
+
+This app is not signed with a code signing certificate, so Windows
+SmartScreen will warn you the first time you run it. This is expected.
+
+  1. Run the installer or the exe.
+  2. If you see "Windows protected your PC", click More info.
+  3. Click Run anyway.
+
+Your antivirus may also flag it. This is a common false positive for
+apps built with PyInstaller, because the packaging method resembles
+what some malware uses. The source code is available if you want to
+check it or build it yourself.
+"""
+
+_GATEKEEPER = _GATEKEEPER_WIN if sys.platform == "win32" else _GATEKEEPER_MAC
+
+WELCOME_TEXT = f"""{APP_NAME} {APP_VERSION}
+
+Download videos from YouTube, Instagram, Facebook, TikTok and around a
+thousand other sites. Everything runs on your own machine. Nothing is
+uploaded anywhere.
+
+QUICK START
+  1. Copy a video link in your browser.
+  2. Click Paste.
+  3. Pick a quality, then click Download.
+
+Files are saved to your Downloads folder unless you change it, and are
+named Title [videoID] so nothing overwrites anything else.
+
+ABOUT VIDEO QUALITY
+"QuickTime compatible" is on by default. It downloads H.264 video with
+AAC audio, which plays in QuickTime, Photos, iMovie and on iPhone.
+YouTube only offers H.264 up to 1080p, so this caps YouTube downloads
+at 1080p.
+
+Turn it off to get 4K. Those files use the AV1 or VP9 codec, which
+QuickTime cannot play. You will need VLC or IINA for them, and they
+will not import into Photos or iMovie.
+
+KEEPING IT WORKING
+YouTube changes its site often and breaks downloaders. If downloads
+suddenly stop working, click Update yt-dlp, then restart the app. That
+fixes it nearly every time.
+
+PLEASE USE IT RESPONSIBLY
+Downloading may breach the terms of service of these sites. Intended
+for content you own, content licensed for reuse, and content you have
+permission to download. Redistributing other people's copyrighted work
+is a separate matter and is on you.
+
+Click Help at any time to see this again.
+"""
+
+HELP_TEXT = f"""{APP_NAME} {APP_VERSION}
+
+{_GATEKEEPER}
+
+CHOOSING A QUALITY
+
+  Best available    Highest quality that fits your codec choice
+  1080p to 360p     Caps the resolution, smaller files
+  Audio only (MP3)  Extracts audio at 192 kbps
+  Smallest file     Lowest quality, fastest download
+
+QUICKTIME COMPATIBLE, AND WHY 4K IS DIFFERENT
+
+Leave this ticked and you get H.264 video with AAC audio. That plays
+everywhere on a Mac or iPhone, including QuickTime, Photos, iMovie and
+Final Cut.
+
+YouTube stopped encoding H.264 above 1080p. Their 1440p and 4K versions
+exist only as AV1 and VP9. So to download 4K you must untick the box,
+and the file you get will not open in QuickTime, will not import into
+Photos or iMovie, and will not AirDrop usefully to an iPhone. Play those
+with VLC or IINA, both free.
+
+On Macs with an M1 or M2 chip there is no hardware decoder for AV1, so
+4K playback uses the processor heavily and drains battery. M3 and newer
+handle it in hardware.
+
+SUBTITLES
+Downloads English, Sinhala and Tamil subtitles when the site has them,
+including automatically generated ones. They are saved as separate .srt
+files next to the video.
+
+PLAYLISTS
+Off by default, so pasting a link from inside a playlist gets you just
+that one video. Tick Whole playlist to download all of it.
+
+WHEN SOMETHING GOES WRONG
+
+  Downloads suddenly stopped working
+    Click Update yt-dlp and restart. This is the usual cause, because
+    sites change and break the extractor.
+
+  "Sign in to confirm you're not a bot"
+    YouTube's bot check. Usually clears by itself after a while.
+
+  Private or login required
+    Public posts only. Private accounts, stories and anything behind a
+    login wall cannot be downloaded.
+
+  Video unavailable or region blocked
+    Nothing to be done from here.
+
+  Only low resolution downloads, or no sound
+    ffmpeg is missing. It ships inside this app, so if you see this,
+    please report it.
+
+WHERE FILES GO
+Whatever folder is shown in Save to. Click Open folder to see them.
+"""
+
 
 
 # ----------------------------------------------------------------------
@@ -317,17 +508,28 @@ class DownloaderApp(tk.Tk):
 
         self.msg_queue = queue.Queue()
         self.worker = None
+        self.settings = load_settings()
+
         self.folder = tk.StringVar(
-            value=os.path.join(os.path.expanduser("~"), "Downloads")
+            value=self.settings.get(
+                "folder", os.path.join(os.path.expanduser("~"), "Downloads"))
         )
-        self.quality = tk.StringVar(value="Best available")
+        quality = self.settings.get("quality", "Best available")
+        if quality not in QUALITY_PRESETS:
+            quality = "Best available"
+        self.quality = tk.StringVar(value=quality)
         self.subtitles = tk.BooleanVar(value=False)
         self.playlist = tk.BooleanVar(value=False)
-        self.apple_safe = tk.BooleanVar(value=True)
+        self.apple_safe = tk.BooleanVar(
+            value=self.settings.get("apple_safe", True))
 
         self._build_ui()
         self._check_dependencies()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._poll_queue)
+
+        if not self.settings.get("seen_welcome"):
+            self.after(400, self._show_welcome)
 
     # -- layout --------------------------------------------------------
 
@@ -403,6 +605,8 @@ class DownloaderApp(tk.Tk):
                    command=self.open_folder).pack(side="left", padx=(8, 0))
         ttk.Button(btns, text="Update yt-dlp",
                    command=self.update_ytdlp).pack(side="right")
+        ttk.Button(btns, text="Help",
+                   command=self._show_help).pack(side="right", padx=(0, 6))
 
         # Progress
         prog = ttk.LabelFrame(self, text="Progress")
@@ -457,6 +661,51 @@ class DownloaderApp(tk.Tk):
             self.log_msg("High resolution merging and MP3 export will fail.")
 
         self.log_msg("Ready. Paste a URL to begin.")
+
+    # -- welcome and help ----------------------------------------------
+
+    def _text_window(self, title, body, width=78, height=26):
+        """Simple scrollable read only text window."""
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.transient(self)
+
+        frame = ttk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=12, pady=12)
+
+        txt = tk.Text(frame, wrap="word", width=width, height=height,
+                      font=("Segoe UI", 11), relief="flat",
+                      padx=10, pady=10)
+        txt.pack(side="left", fill="both", expand=True)
+
+        sb = ttk.Scrollbar(frame, command=txt.yview)
+        sb.pack(side="right", fill="y")
+        txt.config(yscrollcommand=sb.set)
+
+        txt.insert("1.0", body)
+        txt.config(state="disabled")
+
+        ttk.Button(win, text="Close", command=win.destroy).pack(pady=(0, 12))
+        win.update_idletasks()
+        return win
+
+    def _show_welcome(self):
+        self._text_window(f"Welcome to {APP_NAME}", WELCOME_TEXT, height=22)
+        self.settings["seen_welcome"] = True
+        save_settings(self.settings)
+
+    def _show_help(self):
+        self._text_window(f"{APP_NAME} Help", HELP_TEXT)
+
+    def _on_close(self):
+        self.settings.update({
+            "folder": self.folder.get(),
+            "quality": self.quality.get(),
+            "apple_safe": self.apple_safe.get(),
+            "seen_welcome": True,
+        })
+        save_settings(self.settings)
+        self.destroy()
 
     def _compat_note(self):
         if self.apple_safe.get():
