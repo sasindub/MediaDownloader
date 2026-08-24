@@ -62,10 +62,10 @@ if IS_MAC:
         name="Media Downloader.app",
         icon=None,
         bundle_identifier="com.sasindubandara.mediadownloader",
-        version="1.1",
+        version="1.1.0",
         info_plist={
-            "CFBundleShortVersionString": "1.1",
-            "CFBundleVersion": "1.1",
+            "CFBundleShortVersionString": "1.1.0",
+            "CFBundleVersion": "1.1.0",
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
             "NSHumanReadableCopyright": "Sasindu Bandara",

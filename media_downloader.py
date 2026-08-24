@@ -28,7 +28,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 APP_NAME = "Media Downloader"
-APP_VERSION = "1.1"
+APP_VERSION = "1.1.0"
 
 # ----------------------------------------------------------------------
 # Dependency check
