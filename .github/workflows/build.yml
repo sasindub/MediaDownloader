@@ -1,0 +1,101 @@
+name: Build installers
+
+# Push a tag like v1.1 to produce a draft release with all three installers
+# attached. Runs on demand too, for testing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-14 runners are Apple Silicon, macos-13 are Intel.
+          # PyInstaller cannot cross compile, so each needs its own runner.
+          - os: macos-14
+            label: macOS Apple Silicon
+            artifact: MediaDownloader-macOS-arm64.dmg
+          - os: macos-13
+            label: macOS Intel
+            artifact: MediaDownloader-macOS-x86_64.dmg
+          - os: windows-latest
+            label: Windows
+            artifact: MediaDownloader-Windows-Setup.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        env:
+          PYTHON: python
+        run: bash packaging/build_macos.sh
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        env:
+          PYTHON: python
+        shell: pwsh
+        run: |
+          # Inno Setup is not preinstalled on the runner
+          choco install innosetup --no-progress -y
+          ./packaging/build_windows.ps1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/*.dmg
+            dist/MediaDownloader-Windows-Setup.exe
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            artifacts/*.dmg
+            artifacts/*.exe
+          body: |
+            ## Media Downloader ${{ github.ref_name }}
+
+            | Download | For |
+            |---|---|
+            | `MediaDownloader-macOS-arm64.dmg` | Macs with M1, M2, M3 or M4 |
+            | `MediaDownloader-macOS-x86_64.dmg` | Intel Macs |
+            | `MediaDownloader-Windows-Setup.exe` | Windows 10 and 11, 64 bit |
+
+            These builds are not code signed, so macOS and Windows will
+            warn you the first time you open them. The DMG contains a
+            READ ME FIRST file with the steps.
+
+            ffmpeg is bundled under the GNU GPL v3.

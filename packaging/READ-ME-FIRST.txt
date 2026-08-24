@@ -1,0 +1,25 @@
+MEDIA DOWNLOADER - PLEASE READ BEFORE OPENING
+
+1. Drag Media Downloader into the Applications folder shown here.
+
+2. The first time you open it, macOS will block it. This is normal.
+   The app is not signed with an Apple Developer certificate, which
+   costs 99 dollars a year. It does not mean anything is wrong with it.
+
+   On macOS 15 Sequoia or newer
+     a. Double click the app. macOS says it cannot verify it. Click Done.
+     b. Open System Settings > Privacy and Security.
+     c. Scroll down to Security. Next to the message about Media
+        Downloader being blocked, click Open Anyway.
+     d. Confirm with Touch ID or your password, then click Open Anyway.
+
+   On macOS 14 Sonoma or older
+     a. Right click the app and choose Open.
+     b. Click Open in the dialog.
+
+3. After that first time, it opens normally by double clicking.
+
+Everything runs on your own computer. Nothing is uploaded anywhere.
+
+ffmpeg is included inside the app under the GNU GPL v3. See
+FFMPEG-LICENCE.txt inside the app bundle for the source offer.

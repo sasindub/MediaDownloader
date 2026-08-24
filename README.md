@@ -148,3 +148,41 @@ The last three are considerably more interesting than the downloader itself.
 
 Sasindu Bandara
 Follow for more
+
+---
+
+## Building the installers
+
+Installers are built by GitHub Actions. Push a tag and all three are
+produced automatically and attached to a draft release:
+
+```bash
+git tag v1.1
+git push origin v1.1
+```
+
+The matrix in `.github/workflows/build.yml` covers macOS Apple Silicon
+(`macos-14`), macOS Intel (`macos-13`) and Windows (`windows-latest`).
+PyInstaller cannot cross compile, so each target needs its own runner.
+
+### Building locally
+
+Only builds for the machine you are on.
+
+```bash
+pip install -r requirements.txt pyinstaller
+bash packaging/build_macos.sh          # macOS
+powershell packaging/build_windows.ps1 # Windows, needs Inno Setup
+```
+
+`packaging/fetch_ffmpeg.py` downloads a static ffmpeg into `bin/` and
+refuses any build compiled with `--enable-nonfree`, since those cannot
+legally be redistributed. macOS binaries come from ffmpeg.martin-riedl.de
+and Windows from gyan.dev; both are plain GPL v3 builds.
+
+Note that a local macOS build inherits the deployment target of the
+Python that built it. Homebrew's Python targets the current macOS only,
+so builds made with it will not run on older systems. The CI runners use
+python.org builds, which do not have this problem.
+
+See [INSTALL.md](INSTALL.md) for the end user instructions.
