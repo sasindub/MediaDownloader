@@ -5,7 +5,7 @@ Pick the file that matches your computer.
 | Download | For |
 |---|---|
 | `MediaDownloader-macOS-arm64.dmg` | Macs with an M1, M2, M3 or M4 chip |
-| `MediaDownloader-macOS-x86_64.dmg` | Intel Macs |
+| `MediaDownloader-macOS-x86_64.dmg` | Intel Macs (coming in a later release) |
 | `MediaDownloader-Windows-Setup.exe` | Windows 10 and 11, 64 bit |
 
 Not sure which Mac you have? Click the Apple menu, choose About This Mac,
