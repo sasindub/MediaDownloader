@@ -315,6 +315,28 @@ binaries come from ffmpeg.martin-riedl.de, Windows from gyan.dev. Both are
 plain GPL v3 builds, and `bin/FFMPEG-LICENCE.txt` carries the source offer
 that the licence requires.
 
+### yt-dlp updates
+
+yt-dlp is not frozen into the executable. It ships as the official
+zipapp, one pure Python file, placed in the bundle by
+`packaging/fetch_ytdlp.py` and imported off `sys.path` at startup.
+
+That is what makes **Update yt-dlp** work in a packaged app. The button
+downloads the latest zipapp into the user data folder, and the loader
+prefers it on the next launch when it is newer than the bundled one. A
+frozen copy could never be replaced at runtime, which is why the button
+did nothing in 1.1.0.
+
+The spec strips `yt_dlp` from the archive after analysis, so its
+dependencies stay collected but the package itself does not shadow the
+zipapp. Do not add `yt_dlp` back to the frozen modules.
+
+Users can also repair a broken yt-dlp without the GUI:
+
+```bash
+"/Applications/Media Downloader.app/Contents/MacOS/Media Downloader" --update-ytdlp
+```
+
 ### Signing
 
 Builds are unsigned, so both operating systems warn on first launch.

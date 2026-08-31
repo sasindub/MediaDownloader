@@ -22,29 +22,165 @@ import sys
 import json
 import queue
 import shutil
+import time
+import ssl
+import zipfile
 import threading
 import subprocess
+import urllib.request
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 APP_NAME = "Media Downloader"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 # ----------------------------------------------------------------------
 # Dependency check
 # ----------------------------------------------------------------------
-
-try:
-    import yt_dlp
-except ImportError:
-    yt_dlp = None
-
 
 def resource_dir():
     """Folder holding bundled resources, whether frozen or run from source."""
     if getattr(sys, "frozen", False):
         return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def user_data_dir():
+    """Per user writable folder, in the conventional place for each OS."""
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = (os.environ.get("XDG_CONFIG_HOME")
+                or os.path.expanduser("~/.config"))
+    return os.path.join(base, "MediaDownloader")
+
+
+# yt-dlp ships a self contained zipapp: one file, pure Python, importable
+# straight off sys.path. Shipping it as data rather than freezing it into
+# the executable is what makes the app updatable. A frozen module could
+# never be replaced at runtime, which is why the old update button could
+# not work once packaged.
+YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+BUNDLED_YTDLP = os.path.join(resource_dir(), "ytdlp", "yt-dlp")
+UPDATED_YTDLP = os.path.join(user_data_dir(), "yt-dlp")
+
+
+def ssl_context():
+    """Build an SSL context that works inside a packaged app.
+
+    A frozen app has no system OpenSSL certificate directory, so the
+    default context can fail to verify anything. certifi ships with
+    yt-dlp and is bundled, so it is used when present.
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:      # noqa: BLE001 - fall back to the default context
+        return None
+
+
+def download_ytdlp(log=print):
+    """Fetch the latest yt-dlp zipapp into the user data folder.
+
+    Downloads to a temporary file and only moves it into place once it
+    has been confirmed to be a readable zipapp, so an interrupted
+    download can never leave the app broken. Returns the new version, or
+    None if what is already installed is current.
+    """
+    os.makedirs(user_data_dir(), exist_ok=True)
+    tmp = UPDATED_YTDLP + ".part"
+
+    try:
+        req = urllib.request.Request(
+            YTDLP_URL, headers={"User-Agent": f"{APP_NAME}/{APP_VERSION}"})
+        with urllib.request.urlopen(req, timeout=120,
+                                    context=ssl_context()) as resp, \
+                open(tmp, "wb") as fh:
+            shutil.copyfileobj(resp, fh)
+
+        new_version = zipapp_version(tmp)
+        if not new_version:
+            raise ValueError("the downloaded file was not a usable yt-dlp")
+
+        current = YTDLP_VERSION or (yt_dlp.version.__version__
+                                    if yt_dlp else None)
+        if current and version_key(new_version) <= version_key(current):
+            os.remove(tmp)
+            log(f"Already up to date, yt-dlp {current}.")
+            return None
+
+        os.replace(tmp, UPDATED_YTDLP)
+        log(f"Updated to yt-dlp {new_version}. Restart the app to use it.")
+        return new_version
+
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def zipapp_version(path):
+    """Read yt-dlp's version out of a zipapp without importing it.
+
+    Returns None if the file is missing or not a usable zipapp, which is
+    how a truncated or corrupt download gets rejected.
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            blob = zf.read("yt_dlp/version.py").decode("utf-8", "replace")
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return None
+    found = re.search(r"__version__\s*=\s*[\'\"]([^\'\"]+)", blob)
+    return found.group(1) if found else None
+
+
+def version_key(version):
+    """Sort key for yt-dlp's date style versions, e.g. 2026.08.19."""
+    parts = []
+    for chunk in re.split(r"[.\-]", version or ""):
+        parts.append((0, int(chunk)) if chunk.isdigit() else (1, 0, chunk))
+    return parts
+
+
+def activate_ytdlp():
+    """Put the newest available yt-dlp on sys.path before it is imported.
+
+    Prefers whichever of the downloaded and bundled copies is newer, so
+    that updating the app itself is never a downgrade.
+    """
+    # Bundled is considered first, so the downloaded copy is only used
+    # when it is strictly newer. Ties go to the bundled file, which is not
+    # user writable.
+    best = None
+    for path in (BUNDLED_YTDLP, UPDATED_YTDLP):
+        version = zipapp_version(path)
+        if not version:
+            continue
+        key = version_key(version)
+        if best is None or key > best[0]:
+            best = (key, version, path)
+
+    if best is None:
+        return None, None
+
+    _, version, path = best
+    sys.path.insert(0, path)
+    return version, path
+
+
+YTDLP_VERSION, YTDLP_PATH = activate_ytdlp()
+
+YTDLP_IMPORT_ERROR = None
+
+try:
+    import yt_dlp
+except Exception as exc:            # noqa: BLE001 - shown to the user verbatim
+    yt_dlp = None
+    YTDLP_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
 
 
 def find_ffmpeg():
@@ -73,14 +209,7 @@ def find_ffmpeg():
 
 
 def settings_path():
-    """Per user settings file, in the conventional place for each OS."""
-    if sys.platform == "win32":
-        base = os.environ.get("APPDATA") or os.path.expanduser("~")
-    elif sys.platform == "darwin":
-        base = os.path.expanduser("~/Library/Application Support")
-    else:
-        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "MediaDownloader", "settings.json")
+    return os.path.join(user_data_dir(), "settings.json")
 
 
 def load_settings():
@@ -409,6 +538,7 @@ class DownloadWorker(threading.Thread):
             "concurrent_fragment_downloads": 4,
             "retries": 5,
             "fragment_retries": 5,
+            "extractor_retries": 3,
         }
 
         ffmpeg = find_ffmpeg()
@@ -432,12 +562,51 @@ class DownloadWorker(threading.Thread):
 
         return opts
 
+    # Sites like TikTok intermittently serve a page with no video data in
+    # it, as a soft bot check. Asking again a moment later usually works,
+    # so these are retried rather than shown to the user as a failure.
+    TRANSIENT = (
+        "unable to extract",
+        "unexpected response",
+        "failed to parse json",
+        "unable to download webpage",
+        "read timed out",
+    )
+
+    @classmethod
+    def _is_transient(cls, exc):
+        low = ANSI_RE.sub("", str(exc)).lower()
+        return any(marker in low for marker in cls.TRANSIENT)
+
+    def _retry(self, action, attempts=5):
+        """Run action, retrying the intermittent bot check responses.
+
+        Both metadata extraction and the download itself hit the site, and
+        either can come back with a page that has no video data in it, so
+        both go through here.
+        """
+        for attempt in range(1, attempts + 1):
+            if self.cancelled:
+                raise yt_dlp.utils.DownloadError("Cancelled by user")
+            try:
+                return action()
+            except Exception as exc:
+                if attempt >= attempts or not self._is_transient(exc):
+                    raise
+                self.q.put({
+                    "type": "log",
+                    "text": f"Site did not respond properly, retrying "
+                            f"({attempt} of {attempts - 1})...",
+                })
+                time.sleep(2 * attempt)
+
     def run(self):
         try:
             self.q.put({"type": "log", "text": "Fetching video information..."})
 
             with yt_dlp.YoutubeDL(self.build_options()) as ydl:
-                info = ydl.extract_info(self.url, download=False)
+                info = self._retry(
+                    lambda: ydl.extract_info(self.url, download=False))
 
                 if info is None:
                     raise Exception("Could not read that URL")
@@ -457,7 +626,7 @@ class DownloadWorker(threading.Thread):
                     })
 
                 self.q.put({"type": "log", "text": "Starting download..."})
-                ydl.download([self.url])
+                self._retry(lambda: ydl.download([self.url]))
 
             if not self.cancelled:
                 self.q.put({"type": "done", "folder": self.folder})
@@ -647,12 +816,21 @@ class DownloaderApp(tk.Tk):
 
     def _check_dependencies(self):
         if yt_dlp is None:
-            self.log_msg("ERROR: yt-dlp is not installed.")
-            self.log_msg("Run:  pip install yt-dlp")
+            self.log_msg("ERROR: could not load yt-dlp.")
+            if YTDLP_IMPORT_ERROR:
+                self.log_msg(f"  {YTDLP_IMPORT_ERROR}")
+            self.log_msg("Click Update yt-dlp to download a fresh copy.")
             self.download_btn.config(state="disabled")
             return
 
-        self.log_msg(f"yt-dlp {yt_dlp.version.__version__} loaded.")
+        if YTDLP_PATH == UPDATED_YTDLP:
+            source = "updated copy"
+        elif YTDLP_PATH == BUNDLED_YTDLP:
+            source = "bundled copy"
+        else:
+            source = "system install"
+        self.log_msg(f"yt-dlp {yt_dlp.version.__version__} loaded "
+                     f"({source}).")
 
         if find_ffmpeg():
             self.log_msg("ffmpeg found.")
@@ -742,24 +920,16 @@ class DownloaderApp(tk.Tk):
             subprocess.Popen(["xdg-open", path])
 
     def update_ytdlp(self):
-        self.log_msg("Updating yt-dlp, please wait...")
+        self.log_msg("Checking for a yt-dlp update...")
 
         def work():
+            def log(text):
+                self.msg_queue.put({"type": "log", "text": text})
             try:
-                out = subprocess.run(
-                    [sys.executable, "-m", "pip", "install",
-                     "--upgrade", "yt-dlp"],
-                    capture_output=True, text=True, timeout=180)
-                ok = out.returncode == 0
-                self.msg_queue.put({
-                    "type": "log",
-                    "text": ("yt-dlp updated. Restart the app to load the new "
-                             "version." if ok else "Update failed. Run "
-                             "'pip install -U yt-dlp' manually."),
-                })
-            except Exception as exc:
-                self.msg_queue.put({"type": "log",
-                                    "text": f"Update error: {exc}"})
+                download_ytdlp(log)
+            except Exception as exc:      # noqa: BLE001 - shown to the user
+                log(f"Update failed: {exc}. Check your connection and "
+                    f"try again.")
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -857,9 +1027,22 @@ class DownloaderApp(tk.Tk):
 # ----------------------------------------------------------------------
 
 def main():
+    # Lets a user repair a broken yt-dlp without the GUI, and lets a
+    # packaged build be tested without clicking anything.
+    if "--update-ytdlp" in sys.argv:
+        print(f"{APP_NAME} {APP_VERSION}")
+        print(f"current yt-dlp: {YTDLP_VERSION or 'none'}")
+        print(f"loaded from   : {YTDLP_PATH or 'not loaded'}")
+        try:
+            download_ytdlp()
+        except Exception as exc:          # noqa: BLE001
+            print(f"Update failed: {exc}")
+            return 1
+        return 0
+
     app = DownloaderApp()
     app.mainloop()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

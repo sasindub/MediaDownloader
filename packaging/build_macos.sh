@@ -15,6 +15,9 @@ STAGE="dist/dmg"
 echo "==> Fetching ffmpeg"
 "$PYTHON" packaging/fetch_ffmpeg.py
 
+echo "==> Fetching yt-dlp"
+"$PYTHON" packaging/fetch_ytdlp.py
+
 echo "==> Building app"
 rm -rf build dist
 "$PYTHON" -m PyInstaller --noconfirm --clean packaging/MediaDownloader.spec

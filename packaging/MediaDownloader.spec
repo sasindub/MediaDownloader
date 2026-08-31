@@ -21,15 +21,29 @@ if not os.path.isfile(ffmpeg_path):
     raise SystemExit(
         f"{ffmpeg_path} is missing. Run packaging/fetch_ffmpeg.py first.")
 
+ytdlp_path = os.path.join(ROOT, "bin", "yt-dlp")
+
+if not os.path.isfile(ytdlp_path):
+    raise SystemExit(
+        f"{ytdlp_path} is missing. Run packaging/fetch_ytdlp.py first.")
+
 # Landing them in bin/ matches what find_ffmpeg() looks for at runtime.
 binaries = [(ffmpeg_path, "bin")]
-datas = [(os.path.join(ROOT, "bin", "FFMPEG-LICENCE.txt"), "bin")]
+datas = [
+    (os.path.join(ROOT, "bin", "FFMPEG-LICENCE.txt"), "bin"),
+    # Shipped as data, not frozen, so update_ytdlp() can replace it later.
+    (ytdlp_path, "ytdlp"),
+]
 
 a = Analysis(
     [os.path.join(ROOT, "media_downloader.py")],
     pathex=[ROOT],
     binaries=binaries,
     datas=datas,
+    # yt_dlp is analysed so that everything it imports (ssl, http.cookiejar,
+    # xml, email and friends) is collected. The package itself is stripped
+    # from the archive below, leaving the dependencies behind for the
+    # zipapp to use.
     hiddenimports=["yt_dlp"],
     hookspath=[],
     runtime_hooks=[],
@@ -38,6 +52,12 @@ a = Analysis(
     excludes=["numpy", "pytest", "setuptools", "pip", "PIL", "matplotlib"],
     noarchive=False,
 )
+
+# Drop the frozen yt_dlp modules. A frozen copy would be found first and
+# would shadow the zipapp, which is what made the old update button
+# pointless once packaged. Their dependencies stay collected.
+a.pure = TOC([entry for entry in a.pure
+              if not (entry[0] == "yt_dlp" or entry[0].startswith("yt_dlp."))])
 
 pyz = PYZ(a.pure)
 
@@ -62,10 +82,10 @@ if IS_MAC:
         name="Media Downloader.app",
         icon=None,
         bundle_identifier="com.sasindubandara.mediadownloader",
-        version="1.1.0",
+        version="1.2.0",
         info_plist={
-            "CFBundleShortVersionString": "1.1.0",
-            "CFBundleVersion": "1.1.0",
+            "CFBundleShortVersionString": "1.2.0",
+            "CFBundleVersion": "1.2.0",
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
             "NSHumanReadableCopyright": "Sasindu Bandara",
