@@ -10,6 +10,10 @@ $python = if ($env:PYTHON) { $env:PYTHON } else { "python" }
 
 Write-Host "==> Fetching ffmpeg"
 & $python packaging\fetch_ffmpeg.py
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
+Write-Host "==> Fetching yt-dlp"
+& $python packaging\fetch_ytdlp.py
 
 Write-Host "==> Building exe"
 Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue

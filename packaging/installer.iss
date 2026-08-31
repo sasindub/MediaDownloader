@@ -3,7 +3,7 @@
 ; get a Start menu entry and a clean uninstall.
 
 #define AppName "Media Downloader"
-#define AppVersion "1.1.0"
+#define AppVersion "1.2.0"
 #define AppPublisher "Sasindu Bandara"
 #define AppExe "MediaDownloader.exe"
 
