@@ -1,4 +1,4 @@
-# Installing Media Downloader
+# Installing Mediora Media Downloader
 
 Pick the file that matches your computer.
 
@@ -18,7 +18,7 @@ Python, ffmpeg, or anything else.
 
 ## macOS
 
-**1.** Open the DMG and drag **Media Downloader** into Applications.
+**1.** Open the DMG and drag **Mediora Media Downloader** into Applications.
 
 **2.** The first time you open it, macOS blocks it. This is expected.
 

@@ -8,7 +8,7 @@ cd "$ROOT"
 
 PYTHON="${PYTHON:-python3}"
 ARCH="$(uname -m)"
-APP="dist/Media Downloader.app"
+APP="dist/Mediora Media Downloader.app"
 DMG="dist/MediaDownloader-macOS-${ARCH}.dmg"
 STAGE="dist/dmg"
 
@@ -36,7 +36,7 @@ cp -R "$APP" "$STAGE/"
 cp packaging/READ-ME-FIRST.txt "$STAGE/READ ME FIRST.txt"
 ln -s /Applications "$STAGE/Applications"
 
-hdiutil create -volname "Media Downloader" -srcfolder "$STAGE" \
+hdiutil create -volname "Mediora Media Downloader" -srcfolder "$STAGE" \
     -ov -format UDZO "$DMG" >/dev/null
 
 rm -rf "$STAGE"
