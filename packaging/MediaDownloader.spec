@@ -11,6 +11,8 @@ install anything. Run packaging/fetch_ffmpeg.py first to populate bin/.
 import os
 import sys
 
+from PyInstaller.utils.hooks import collect_all
+
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 IS_MAC = sys.platform == "darwin"
 
@@ -33,7 +35,15 @@ datas = [
     (os.path.join(ROOT, "bin", "FFMPEG-LICENCE.txt"), "bin"),
     # Shipped as data, not frozen, so update_ytdlp() can replace it later.
     (ytdlp_path, "ytdlp"),
+    # Window and header artwork.
+    (os.path.join(ROOT, "assets"), "assets"),
 ]
+
+# ttkbootstrap keeps its themes in data files, which are not picked up by
+# import analysis alone.
+tb_datas, tb_binaries, tb_hidden = collect_all("ttkbootstrap")
+datas += tb_datas
+binaries += tb_binaries
 
 a = Analysis(
     [os.path.join(ROOT, "media_downloader.py")],
@@ -44,12 +54,14 @@ a = Analysis(
     # xml, email and friends) is collected. The package itself is stripped
     # from the archive below, leaving the dependencies behind for the
     # zipapp to use.
-    hiddenimports=["yt_dlp"],
+    hiddenimports=["yt_dlp"] + tb_hidden,
     hookspath=[],
     runtime_hooks=[],
     # Trimming these keeps the bundle from ballooning. yt-dlp imports them
     # only for features this app does not expose.
-    excludes=["numpy", "pytest", "setuptools", "pip", "PIL", "matplotlib"],
+    # PIL is NOT excluded: ttkbootstrap imports it for colour handling, and
+    # leaving it out makes the packaged app crash on launch.
+    excludes=["numpy", "pytest", "setuptools", "pip", "matplotlib"],
     noarchive=False,
 )
 
@@ -80,12 +92,12 @@ if IS_MAC:
     app = BUNDLE(
         coll,
         name="Media Downloader.app",
-        icon=None,
+        icon=os.path.join(ROOT, "assets", "AppIcon.icns"),
         bundle_identifier="com.sasindubandara.mediadownloader",
-        version="1.2.0",
+        version="1.3.0",
         info_plist={
-            "CFBundleShortVersionString": "1.2.0",
-            "CFBundleVersion": "1.2.0",
+            "CFBundleShortVersionString": "1.3.0",
+            "CFBundleVersion": "1.3.0",
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
             "NSHumanReadableCopyright": "Sasindu Bandara",
@@ -101,5 +113,5 @@ else:
         strip=False,
         upx=False,
         console=False,
-        icon=None,
+        icon=os.path.join(ROOT, "assets", "icon.ico"),
     )
