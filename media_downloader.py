@@ -578,13 +578,26 @@ class DownloadWorker(threading.Thread):
         low = ANSI_RE.sub("", str(exc)).lower()
         return any(marker in low for marker in cls.TRANSIENT)
 
-    def _retry(self, action, attempts=5):
+    # Seconds to wait before each retry. A site that is throttling can
+    # stay unhappy for a minute or more, and the old 2, 4, 6, 8 schedule
+    # gave up after twenty seconds, well inside that window.
+    BACKOFF = (4, 10, 25, 45)
+
+    def _sleep_unless_cancelled(self, seconds):
+        """Wait, but stay responsive to the Cancel button."""
+        for _ in range(int(seconds * 2)):
+            if self.cancelled:
+                return
+            time.sleep(0.5)
+
+    def _retry(self, action):
         """Run action, retrying the intermittent bot check responses.
 
         Both metadata extraction and the download itself hit the site, and
         either can come back with a page that has no video data in it, so
         both go through here.
         """
+        attempts = len(self.BACKOFF) + 1
         for attempt in range(1, attempts + 1):
             if self.cancelled:
                 raise yt_dlp.utils.DownloadError("Cancelled by user")
@@ -593,12 +606,14 @@ class DownloadWorker(threading.Thread):
             except Exception as exc:
                 if attempt >= attempts or not self._is_transient(exc):
                     raise
+                wait = self.BACKOFF[attempt - 1]
                 self.q.put({
                     "type": "log",
-                    "text": f"Site did not respond properly, retrying "
+                    "text": f"The site is not responding properly. Waiting "
+                            f"{wait} seconds, then trying again "
                             f"({attempt} of {attempts - 1})...",
                 })
-                time.sleep(2 * attempt)
+                self._sleep_unless_cancelled(wait)
 
     def run(self):
         try:
@@ -658,6 +673,13 @@ class DownloadWorker(threading.Thread):
             return "That URL is not recognised. Check it and try again."
         if "age" in low and "restrict" in low:
             return "This video is age restricted and needs account cookies."
+        if ("unexpected response" in low or "unable to extract" in low
+                or "rehydration" in low):
+            return ("The site kept refusing to return the video data. This "
+                    "is usually temporary throttling rather than a problem "
+                    "with the video or this app. Wait a few minutes and try "
+                    "again, and avoid downloading many videos back to back. "
+                    "If it persists for hours, click Update yt-dlp.")
 
         return raw[:400]
 
