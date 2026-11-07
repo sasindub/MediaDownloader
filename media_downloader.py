@@ -38,7 +38,7 @@ from ttkbootstrap.constants import (
 )
 
 APP_NAME = "Media Downloader"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 
 # ----------------------------------------------------------------------
 # Dependency check
