@@ -37,8 +37,9 @@ from ttkbootstrap.constants import (
     SECONDARY, SUCCESS, W, X, Y, YES,
 )
 
-APP_NAME = "Media Downloader"
-APP_VERSION = "1.3.1"
+APP_NAME = "Mediora Media Downloader"
+BRAND = "Mediora"
+APP_VERSION = "1.4.0"
 
 # ----------------------------------------------------------------------
 # Dependency check
@@ -802,6 +803,8 @@ class DownloaderApp(tb.Window):
         self._build_log(outer)
         self._build_statusbar()
 
+    PLATFORMS = ("youtube", "tiktok", "instagram", "facebook")
+
     def _build_header(self, parent):
         header = tb.Frame(parent)
         header.pack(fill=X, pady=(0, 14))
@@ -813,17 +816,28 @@ class DownloaderApp(tb.Window):
         titles = tb.Frame(header)
         titles.pack(side=LEFT, anchor=W)
         tb.Label(titles, text=APP_NAME,
-                 font=("-size 19 -weight bold")).pack(anchor=W)
+                 font=("-size 18 -weight bold")).pack(anchor=W)
         tb.Label(titles,
                  text="YouTube, TikTok, Instagram, Facebook and more",
                  bootstyle=SECONDARY).pack(anchor=W)
 
+        # Right hand side, packed outermost first.
         tb.Button(header, text="Help", bootstyle="secondary-link",
                   command=self._show_help).pack(side=RIGHT)
         tb.Checkbutton(header, text="Dark", variable=self.dark_mode,
                        bootstyle="round-toggle",
                        command=self._toggle_theme).pack(side=RIGHT,
-                                                        padx=(0, 14))
+                                                        padx=(0, 16))
+        self._build_platform_badges(header)
+
+    def _build_platform_badges(self, header):
+        """The sites this works with, shown rather than only described."""
+        row = tb.Frame(header)
+        row.pack(side=RIGHT, padx=(0, 18))
+        for name in self.PLATFORMS:
+            image = self._image(f"platform_{name}.png", f"badge_{name}")
+            if image:
+                tb.Label(row, image=image).pack(side=LEFT, padx=3)
 
     def _build_link_card(self, parent):
         card = tb.Labelframe(parent, text="  1.  Paste a video link  ",

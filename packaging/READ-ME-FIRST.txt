@@ -1,6 +1,6 @@
-MEDIA DOWNLOADER - PLEASE READ BEFORE OPENING
+MEDIORA MEDIA DOWNLOADER - PLEASE READ BEFORE OPENING
 
-1. Drag Media Downloader into the Applications folder shown here.
+1. Drag Mediora Media Downloader into the Applications folder shown here.
 
 2. The first time you open it, macOS will block it. This is normal.
    The app is not signed with an Apple Developer certificate, which

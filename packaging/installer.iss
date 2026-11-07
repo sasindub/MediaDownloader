@@ -2,8 +2,8 @@
 ; Wraps the PyInstaller onefile exe in a normal Windows installer so users
 ; get a Start menu entry and a clean uninstall.
 
-#define AppName "Media Downloader"
-#define AppVersion "1.3.1"
+#define AppName "Mediora Media Downloader"
+#define AppVersion "1.4.0"
 #define AppPublisher "Sasindu Bandara"
 #define AppExe "MediaDownloader.exe"
 

@@ -1,4 +1,4 @@
-# Media Downloader
+# Mediora Media Downloader
 
 A local desktop app for downloading videos from YouTube, Instagram, Facebook,
 TikTok and around 1000 other sites. Runs entirely on your machine. No server,
@@ -334,7 +334,7 @@ zipapp. Do not add `yt_dlp` back to the frozen modules.
 Users can also repair a broken yt-dlp without the GUI:
 
 ```bash
-"/Applications/Media Downloader.app/Contents/MacOS/Media Downloader" --update-ytdlp
+"/Applications/Mediora Media Downloader.app/Contents/MacOS/Mediora Media Downloader" --update-ytdlp
 ```
 
 ### Signing
