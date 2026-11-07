@@ -3,11 +3,12 @@
 ; get a Start menu entry and a clean uninstall.
 
 #define AppName "Media Downloader"
-#define AppVersion "1.2.0"
+#define AppVersion "1.3.0"
 #define AppPublisher "Sasindu Bandara"
 #define AppExe "MediaDownloader.exe"
 
 [Setup]
+SetupIconFile=..\assets\icon.ico
 AppId={{8F2A4C61-9E3D-4B7A-A1C5-2D6E8F0B3A94}
 AppName={#AppName}
 AppVersion={#AppVersion}

@@ -29,10 +29,16 @@ import threading
 import subprocess
 import urllib.request
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, messagebox
+
+import ttkbootstrap as tb
+from ttkbootstrap.constants import (
+    BOTH, BOTTOM, DANGER, DISABLED, END, LEFT, NORMAL, PRIMARY, RIGHT,
+    SECONDARY, SUCCESS, W, X, Y, YES,
+)
 
 APP_NAME = "Media Downloader"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 # ----------------------------------------------------------------------
 # Dependency check
@@ -688,23 +694,59 @@ class DownloadWorker(threading.Thread):
 # GUI
 # ----------------------------------------------------------------------
 
-class DownloaderApp(tk.Tk):
+
+def system_is_dark():
+    """Best effort read of the operating system appearance."""
+    try:
+        if sys.platform == "darwin":
+            out = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True, text=True, timeout=5)
+            return "dark" in out.stdout.lower()
+        if sys.platform == "win32":
+            import winreg
+            path = (r"Software\\Microsoft\\Windows\\CurrentVersion"
+                    r"\\Themes\\Personalize")
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
+                return winreg.QueryValueEx(key, "AppsUseLightTheme")[0] == 0
+    except Exception:          # noqa: BLE001 - appearance is cosmetic
+        pass
+    return False
+
+
+def asset(name):
+    """Absolute path to a bundled image, or None when it is missing."""
+    path = os.path.join(resource_dir(), "assets", name)
+    return path if os.path.isfile(path) else None
+
+
+class DownloaderApp(tb.Window):
+
+    PAD = 16
 
     def __init__(self):
-        super().__init__()
+        self.settings = load_settings()
+        dark = self.settings.get("dark_mode")
+        if dark is None:
+            dark = system_is_dark()
 
-        self.title(f"{APP_NAME} {APP_VERSION}")
-        self.geometry("720x600")
-        self.minsize(640, 560)
+        super().__init__(
+            title=f"{APP_NAME} {APP_VERSION}",
+            themename="bootstrap-dark" if dark else "bootstrap-light",
+            size=(880, 760),
+            minsize=(780, 680),
+        )
+
+        self._images = {}      # Tk discards images that are not referenced
+        self._set_window_icon()
 
         self.msg_queue = queue.Queue()
         self.worker = None
-        self.settings = load_settings()
+        self.finished_folder = None
 
         self.folder = tk.StringVar(
             value=self.settings.get(
-                "folder", os.path.join(os.path.expanduser("~"), "Downloads"))
-        )
+                "folder", os.path.join(os.path.expanduser("~"), "Downloads")))
         quality = self.settings.get("quality", "Best available")
         if quality not in QUALITY_PRESETS:
             quality = "Best available"
@@ -713,127 +755,231 @@ class DownloaderApp(tk.Tk):
         self.playlist = tk.BooleanVar(value=False)
         self.apple_safe = tk.BooleanVar(
             value=self.settings.get("apple_safe", True))
+        self.dark_mode = tk.BooleanVar(value=bool(dark))
 
         self._build_ui()
         self._check_dependencies()
+        self._prefill_from_clipboard()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._poll_queue)
 
         if not self.settings.get("seen_welcome"):
-            self.after(400, self._show_welcome)
+            self.after(500, self._show_welcome)
+
+    # -- window chrome -------------------------------------------------
+
+    def _set_window_icon(self):
+        path = asset("icon_128.png")
+        if not path:
+            return
+        try:
+            self._images["app"] = tk.PhotoImage(file=path)
+            self.iconphoto(True, self._images["app"])
+        except tk.TclError:
+            pass
+
+    def _image(self, name, key):
+        path = asset(name)
+        if not path:
+            return None
+        try:
+            self._images[key] = tk.PhotoImage(file=path)
+            return self._images[key]
+        except tk.TclError:
+            return None
 
     # -- layout --------------------------------------------------------
 
     def _build_ui(self):
-        pad = {"padx": 14, "pady": 6}
+        outer = tb.Frame(self, padding=(self.PAD, 12, self.PAD, self.PAD))
+        outer.pack(fill=BOTH, expand=YES)
 
-        header = ttk.Frame(self)
-        header.pack(fill="x", **pad)
-        ttk.Label(header, text=APP_NAME,
-                  font=("Segoe UI", 17, "bold")).pack(anchor="w")
-        ttk.Label(header,
-                  text="YouTube, Instagram, Facebook, TikTok and more",
-                  foreground="#666").pack(anchor="w")
+        self._build_header(outer)
+        self._build_link_card(outer)
+        self._build_options_card(outer)
+        self._build_actions(outer)
+        self._build_status_card(outer)
+        self._build_log(outer)
+        self._build_statusbar()
 
-        # URL
-        url_frame = ttk.LabelFrame(self, text="Video URL")
-        url_frame.pack(fill="x", **pad)
-        row = ttk.Frame(url_frame)
-        row.pack(fill="x", padx=10, pady=10)
+    def _build_header(self, parent):
+        header = tb.Frame(parent)
+        header.pack(fill=X, pady=(0, 14))
 
-        self.url_entry = ttk.Entry(row, font=("Segoe UI", 10))
-        self.url_entry.pack(side="left", fill="x", expand=True)
+        logo = self._image("icon_64.png", "logo")
+        if logo:
+            tb.Label(header, image=logo).pack(side=LEFT, padx=(0, 12))
+
+        titles = tb.Frame(header)
+        titles.pack(side=LEFT, anchor=W)
+        tb.Label(titles, text=APP_NAME,
+                 font=("-size 19 -weight bold")).pack(anchor=W)
+        tb.Label(titles,
+                 text="YouTube, TikTok, Instagram, Facebook and more",
+                 bootstyle=SECONDARY).pack(anchor=W)
+
+        tb.Button(header, text="Help", bootstyle="secondary-link",
+                  command=self._show_help).pack(side=RIGHT)
+        tb.Checkbutton(header, text="Dark", variable=self.dark_mode,
+                       bootstyle="round-toggle",
+                       command=self._toggle_theme).pack(side=RIGHT,
+                                                        padx=(0, 14))
+
+    def _build_link_card(self, parent):
+        card = tb.Labelframe(parent, text="  1.  Paste a video link  ",
+                             padding=14)
+        card.pack(fill=X, pady=(0, 12))
+
+        row = tb.Frame(card)
+        row.pack(fill=X)
+
+        self.url_entry = tb.Entry(row, font=("-size 12"))
+        self.url_entry.pack(side=LEFT, fill=X, expand=YES, ipady=5)
         self.url_entry.bind("<Return>", lambda e: self.start_download())
+        self.url_entry.bind("<KeyRelease>", lambda e: self._sync_download_btn())
 
-        ttk.Button(row, text="Paste", width=8,
-                   command=self.paste_url).pack(side="left", padx=(8, 0))
-        ttk.Button(row, text="Clear", width=8,
-                   command=lambda: self.url_entry.delete(0, "end")
-                   ).pack(side="left", padx=(6, 0))
+        tb.Button(row, text="Paste", bootstyle="primary-outline", width=9,
+                  command=self.paste_url).pack(side=LEFT, padx=(10, 0))
+        tb.Button(row, text="Clear", bootstyle="secondary-outline", width=9,
+                  command=self.clear_url).pack(side=LEFT, padx=(8, 0))
 
-        # Options
-        opt = ttk.LabelFrame(self, text="Options")
-        opt.pack(fill="x", **pad)
+    def _build_options_card(self, parent):
+        card = tb.Labelframe(parent, text="  2.  Choose how to save it  ",
+                             padding=14)
+        card.pack(fill=X, pady=(0, 12))
 
-        r1 = ttk.Frame(opt)
-        r1.pack(fill="x", padx=10, pady=(10, 4))
-        ttk.Label(r1, text="Quality:", width=10).pack(side="left")
-        ttk.Combobox(r1, textvariable=self.quality, width=22, state="readonly",
-                     values=list(QUALITY_PRESETS.keys())).pack(side="left")
+        row1 = tb.Frame(card)
+        row1.pack(fill=X)
+        tb.Label(row1, text="Quality", width=9).pack(side=LEFT)
+        tb.Combobox(row1, textvariable=self.quality, state="readonly",
+                    width=22, values=list(QUALITY_PRESETS)).pack(side=LEFT)
 
-        ttk.Checkbutton(r1, text="Download subtitles",
-                        variable=self.subtitles).pack(side="left", padx=(20, 0))
-        ttk.Checkbutton(r1, text="Whole playlist",
-                        variable=self.playlist).pack(side="left", padx=(14, 0))
+        tb.Checkbutton(row1, text="Subtitles", variable=self.subtitles,
+                       bootstyle="round-toggle").pack(side=LEFT, padx=(24, 0))
+        tb.Checkbutton(row1, text="Whole playlist", variable=self.playlist,
+                       bootstyle="round-toggle").pack(side=LEFT, padx=(20, 0))
 
-        r1b = ttk.Frame(opt)
-        r1b.pack(fill="x", padx=10, pady=(4, 4))
-        ttk.Label(r1b, text="", width=10).pack(side="left")
-        ttk.Checkbutton(r1b, text="QuickTime compatible (H.264 + AAC)",
-                        variable=self.apple_safe,
-                        command=self._compat_note).pack(side="left")
-        ttk.Label(r1b, text="caps YouTube at 1080p",
-                  foreground="#666").pack(side="left", padx=(8, 0))
+        row2 = tb.Frame(card)
+        row2.pack(fill=X, pady=(12, 0))
+        tb.Label(row2, text="", width=9).pack(side=LEFT)
+        tb.Checkbutton(row2, text="Plays everywhere (H.264, needed for "
+                                  "QuickTime, Photos and iPhone)",
+                       variable=self.apple_safe, bootstyle="round-toggle",
+                       command=self._compat_note).pack(side=LEFT)
 
-        r2 = ttk.Frame(opt)
-        r2.pack(fill="x", padx=10, pady=(4, 10))
-        ttk.Label(r2, text="Save to:", width=10).pack(side="left")
-        ttk.Entry(r2, textvariable=self.folder).pack(
-            side="left", fill="x", expand=True)
-        ttk.Button(r2, text="Browse", width=8,
-                   command=self.choose_folder).pack(side="left", padx=(8, 0))
+        row3 = tb.Frame(card)
+        row3.pack(fill=X, pady=(12, 0))
+        tb.Label(row3, text="Save to", width=9).pack(side=LEFT)
+        tb.Entry(row3, textvariable=self.folder).pack(
+            side=LEFT, fill=X, expand=YES, ipady=3)
+        tb.Button(row3, text="Browse", bootstyle="secondary-outline", width=9,
+                  command=self.choose_folder).pack(side=LEFT, padx=(10, 0))
 
-        # Buttons
-        btns = ttk.Frame(self)
-        btns.pack(fill="x", **pad)
-        self.download_btn = ttk.Button(btns, text="Download",
-                                       command=self.start_download)
-        self.download_btn.pack(side="left")
-        self.cancel_btn = ttk.Button(btns, text="Cancel", state="disabled",
-                                     command=self.cancel_download)
-        self.cancel_btn.pack(side="left", padx=(8, 0))
-        ttk.Button(btns, text="Open folder",
-                   command=self.open_folder).pack(side="left", padx=(8, 0))
-        ttk.Button(btns, text="Update yt-dlp",
-                   command=self.update_ytdlp).pack(side="right")
-        ttk.Button(btns, text="Help",
-                   command=self._show_help).pack(side="right", padx=(0, 6))
+    def _build_actions(self, parent):
+        row = tb.Frame(parent)
+        row.pack(fill=X, pady=(0, 14))
 
-        # Progress
-        prog = ttk.LabelFrame(self, text="Progress")
-        prog.pack(fill="x", **pad)
+        self.download_btn = tb.Button(
+            row, text="Download", bootstyle=PRIMARY, width=18,
+            command=self.start_download, state=DISABLED)
+        self.download_btn.pack(side=LEFT, ipady=6)
 
-        self.title_label = ttk.Label(prog, text="Ready",
-                                     font=("Segoe UI", 10, "bold"),
-                                     wraplength=640)
-        self.title_label.pack(anchor="w", padx=10, pady=(10, 4))
+        self.cancel_btn = tb.Button(
+            row, text="Cancel", bootstyle="danger-outline", width=11,
+            state=DISABLED, command=self.cancel_download)
+        self.cancel_btn.pack(side=LEFT, padx=(10, 0), ipady=6)
 
-        self.progress = ttk.Progressbar(prog, maximum=100)
-        self.progress.pack(fill="x", padx=10)
+        self.open_btn = tb.Button(
+            row, text="Open folder", bootstyle="secondary-outline", width=13,
+            command=self.open_folder)
+        self.open_btn.pack(side=RIGHT, ipady=6)
 
-        self.stats_label = ttk.Label(prog, text="", foreground="#666")
-        self.stats_label.pack(anchor="w", padx=10, pady=(4, 10))
+    def _build_status_card(self, parent):
+        card = tb.Labelframe(parent, text="  Progress  ", padding=14)
+        card.pack(fill=X, pady=(0, 12))
 
-        # Log
-        log_frame = ttk.LabelFrame(self, text="Activity")
-        log_frame.pack(fill="both", expand=True, padx=14, pady=(6, 14))
+        self.title_label = tb.Label(card, text="Ready when you are",
+                                    font=("-size 12 -weight bold"),
+                                    wraplength=760)
+        self.title_label.pack(anchor=W)
 
-        self.log = tk.Text(log_frame, height=8, wrap="word",
-                           font=("Consolas", 9), state="disabled",
-                           background="#1e1e1e", foreground="#d4d4d4",
-                           relief="flat")
-        self.log.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
+        self.progress = tb.Progressbar(card, maximum=100, bootstyle=PRIMARY)
+        self.progress.pack(fill=X, pady=(8, 6))
 
-        sb = ttk.Scrollbar(log_frame, command=self.log.yview)
-        sb.pack(side="right", fill="y", pady=8, padx=(0, 8))
-        self.log.config(yscrollcommand=sb.set)
+        self.stats_label = tb.Label(
+            card, text="Paste a link above, then click Download.",
+            bootstyle=SECONDARY)
+        self.stats_label.pack(anchor=W)
 
-    # -- helpers -------------------------------------------------------
+    def _build_log(self, parent):
+        card = tb.Labelframe(parent, text="  Activity  ", padding=10)
+        card.pack(fill=BOTH, expand=YES)
+
+        try:
+            bg = self.style.colors.inputbg
+            fg = self.style.colors.inputfg
+        except Exception:      # noqa: BLE001 - only affects colours
+            bg, fg = "#1e1e1e", "#d4d4d4"
+
+        wrap = tb.Frame(card)
+        wrap.pack(fill=BOTH, expand=YES)
+
+        self.log = tk.Text(wrap, height=7, wrap="word", relief="flat",
+                           font=("TkFixedFont", 11), state="disabled",
+                           background=bg, foreground=fg,
+                           highlightthickness=0, padx=10, pady=8)
+        self.log.pack(side=LEFT, fill=BOTH, expand=YES)
+
+        bar = tb.Scrollbar(wrap, command=self.log.yview, bootstyle="round")
+        bar.pack(side=RIGHT, fill=Y)
+        self.log.config(yscrollcommand=bar.set)
+
+    def _build_statusbar(self):
+        bar = tb.Frame(self, padding=(self.PAD, 6))
+        bar.pack(fill=X, side=BOTTOM)
+
+        self.env_label = tb.Label(bar, text="", bootstyle=SECONDARY)
+        self.env_label.pack(side=LEFT)
+
+        tb.Button(bar, text="Update yt-dlp", bootstyle="secondary-link",
+                  command=self.update_ytdlp).pack(side=RIGHT)
+
+    # -- small helpers -------------------------------------------------
+
+    def _toggle_theme(self):
+        theme = "bootstrap-dark" if self.dark_mode.get() else "bootstrap-light"
+        self.style.theme_use(theme)
+        try:
+            self.log.config(background=self.style.colors.inputbg,
+                            foreground=self.style.colors.inputfg)
+        except Exception:      # noqa: BLE001
+            pass
+
+    def _sync_download_btn(self):
+        busy = bool(self.worker and self.worker.is_alive())
+        has_url = bool(self.url_entry.get().strip())
+        self.download_btn.config(
+            state=NORMAL if has_url and not busy and yt_dlp else DISABLED)
+
+    def clear_url(self):
+        self.url_entry.delete(0, END)
+        self._sync_download_btn()
+
+    def _prefill_from_clipboard(self):
+        """Fill the box when a link is already on the clipboard."""
+        try:
+            text = self.clipboard_get().strip()
+        except tk.TclError:
+            return
+        if text.startswith(("http://", "https://")) and len(text) < 500:
+            self.url_entry.insert(0, text)
+            self._sync_download_btn()
+            self.log_msg("Found a link on your clipboard and filled it in.")
 
     def log_msg(self, text):
         self.log.config(state="normal")
-        self.log.insert("end", text + "\n")
-        self.log.see("end")
+        self.log.insert(END, text + "\n")
+        self.log.see(END)
         self.log.config(state="disabled")
 
     def _check_dependencies(self):
@@ -842,55 +988,64 @@ class DownloaderApp(tk.Tk):
             if YTDLP_IMPORT_ERROR:
                 self.log_msg(f"  {YTDLP_IMPORT_ERROR}")
             self.log_msg("Click Update yt-dlp to download a fresh copy.")
-            self.download_btn.config(state="disabled")
+            self.env_label.config(text="yt-dlp missing", bootstyle=DANGER)
             return
 
         if YTDLP_PATH == UPDATED_YTDLP:
-            source = "updated copy"
+            source = "updated"
         elif YTDLP_PATH == BUNDLED_YTDLP:
-            source = "bundled copy"
+            source = "bundled"
         else:
-            source = "system install"
-        self.log_msg(f"yt-dlp {yt_dlp.version.__version__} loaded "
-                     f"({source}).")
+            source = "system"
 
+        parts = [f"yt-dlp {yt_dlp.version.__version__} ({source})"]
         if find_ffmpeg():
-            self.log_msg("ffmpeg found.")
+            parts.append("ffmpeg ready")
         else:
-            self.log_msg("WARNING: ffmpeg not found on PATH.")
-            self.log_msg("High resolution merging and MP3 export will fail.")
+            parts.append("ffmpeg missing")
+            self.log_msg("WARNING: ffmpeg was not found. High resolution "
+                         "merging and MP3 export will fail.")
+        self.env_label.config(text="   •   ".join(parts))
+        self.log_msg("Ready. Paste a video link above to begin.")
 
-        self.log_msg("Ready. Paste a URL to begin.")
+    def _compat_note(self):
+        if self.apple_safe.get():
+            self.log_msg("Compatibility mode on. H.264 and AAC only, which "
+                         "caps YouTube at 1080p.")
+        else:
+            self.log_msg("Compatibility mode off. 4K is available, but those "
+                         "files are AV1 or VP9 and need VLC or IINA.")
 
     # -- welcome and help ----------------------------------------------
 
-    def _text_window(self, title, body, width=78, height=26):
-        """Simple scrollable read only text window."""
-        win = tk.Toplevel(self)
-        win.title(title)
-        win.transient(self)
+    def _text_window(self, title, body, height=28):
+        win = tb.Toplevel(title=title, transient=self, resizable=(False, True))
+        frame = tb.Frame(win, padding=14)
+        frame.pack(fill=BOTH, expand=YES)
 
-        frame = ttk.Frame(win)
-        frame.pack(fill="both", expand=True, padx=12, pady=12)
+        txt = tk.Text(frame, wrap="word", width=74, height=height,
+                      relief="flat", padx=12, pady=10,
+                      highlightthickness=0, font=("TkDefaultFont", 12))
+        try:
+            txt.config(background=self.style.colors.inputbg,
+                       foreground=self.style.colors.inputfg)
+        except Exception:      # noqa: BLE001
+            pass
+        txt.pack(side=LEFT, fill=BOTH, expand=YES)
 
-        txt = tk.Text(frame, wrap="word", width=width, height=height,
-                      font=("Segoe UI", 11), relief="flat",
-                      padx=10, pady=10)
-        txt.pack(side="left", fill="both", expand=True)
-
-        sb = ttk.Scrollbar(frame, command=txt.yview)
-        sb.pack(side="right", fill="y")
-        txt.config(yscrollcommand=sb.set)
+        bar = tb.Scrollbar(frame, command=txt.yview, bootstyle="round")
+        bar.pack(side=RIGHT, fill=Y)
+        txt.config(yscrollcommand=bar.set)
 
         txt.insert("1.0", body)
         txt.config(state="disabled")
 
-        ttk.Button(win, text="Close", command=win.destroy).pack(pady=(0, 12))
-        win.update_idletasks()
+        tb.Button(win, text="Close", bootstyle=PRIMARY, width=12,
+                  command=win.destroy).pack(pady=(0, 14))
         return win
 
     def _show_welcome(self):
-        self._text_window(f"Welcome to {APP_NAME}", WELCOME_TEXT, height=22)
+        self._text_window(f"Welcome to {APP_NAME}", WELCOME_TEXT, height=24)
         self.settings["seen_welcome"] = True
         save_settings(self.settings)
 
@@ -902,27 +1057,22 @@ class DownloaderApp(tk.Tk):
             "folder": self.folder.get(),
             "quality": self.quality.get(),
             "apple_safe": self.apple_safe.get(),
+            "dark_mode": self.dark_mode.get(),
             "seen_welcome": True,
         })
         save_settings(self.settings)
         self.destroy()
 
-    def _compat_note(self):
-        if self.apple_safe.get():
-            self.log_msg("QuickTime mode on. H.264 and AAC only, 1080p max on "
-                         "YouTube.")
-        else:
-            self.log_msg("QuickTime mode off. Higher resolutions may arrive as "
-                         "AV1 or VP9, which QuickTime cannot play. Use VLC or "
-                         "IINA for those.")
+    # -- clipboard and folders -----------------------------------------
 
     def paste_url(self):
         try:
             text = self.clipboard_get().strip()
-            self.url_entry.delete(0, "end")
-            self.url_entry.insert(0, text)
         except tk.TclError:
-            pass
+            return
+        self.url_entry.delete(0, END)
+        self.url_entry.insert(0, text)
+        self._sync_download_btn()
 
     def choose_folder(self):
         chosen = filedialog.askdirectory(initialdir=self.folder.get())
@@ -930,7 +1080,7 @@ class DownloaderApp(tk.Tk):
             self.folder.set(chosen)
 
     def open_folder(self):
-        path = self.folder.get()
+        path = self.finished_folder or self.folder.get()
         if not os.path.isdir(path):
             messagebox.showerror(APP_NAME, "That folder does not exist.")
             return
@@ -963,7 +1113,6 @@ class DownloaderApp(tk.Tk):
 
         url = self.url_entry.get().strip()
         if not url:
-            messagebox.showwarning(APP_NAME, "Please enter a URL.")
             return
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
@@ -972,32 +1121,36 @@ class DownloaderApp(tk.Tk):
         if not os.path.isdir(folder):
             try:
                 os.makedirs(folder, exist_ok=True)
-            except Exception:
+            except OSError:
                 messagebox.showerror(APP_NAME, "Cannot use that folder.")
                 return
 
+        self.progress.config(bootstyle=PRIMARY)
         self.progress["value"] = 0
-        self.stats_label.config(text="")
-        self.title_label.config(text="Connecting...")
-        self.download_btn.config(state="disabled")
-        self.cancel_btn.config(state="normal")
-        self.log_msg("-" * 50)
+        self.stats_label.config(text="Contacting the site...")
+        self.title_label.config(text="Starting")
+        self.cancel_btn.config(state=NORMAL)
+        self.log_msg("-" * 56)
 
         self.worker = DownloadWorker(
-            url, folder, self.quality.get(),
-            self.subtitles.get(), self.playlist.get(), self.msg_queue,
+            url, folder, self.quality.get(), self.subtitles.get(),
+            self.playlist.get(), self.msg_queue,
             apple_safe=self.apple_safe.get())
         self.worker.start()
+        self._sync_download_btn()
 
     def cancel_download(self):
         if self.worker and self.worker.is_alive():
             self.worker.cancel()
             self.log_msg("Cancelling...")
-            self.cancel_btn.config(state="disabled")
+            self.cancel_btn.config(state=DISABLED)
 
-    def _reset_buttons(self):
-        self.download_btn.config(state="normal")
-        self.cancel_btn.config(state="disabled")
+    def _finish(self, title, stats, style):
+        self.title_label.config(text=title)
+        self.stats_label.config(text=stats)
+        self.progress.config(bootstyle=style)
+        self.cancel_btn.config(state=DISABLED)
+        self._sync_download_btn()
 
     # -- queue pump ----------------------------------------------------
 
@@ -1010,10 +1163,8 @@ class DownloaderApp(tk.Tk):
                 if kind == "progress":
                     self.progress["value"] = msg["percent"]
                     self.stats_label.config(
-                        text=f"{msg['percent']:.1f}%   "
-                             f"{msg['speed']}   "
-                             f"ETA {msg['eta']}   "
-                             f"Size {msg['size']}")
+                        text=f"{msg['percent']:.1f}%      {msg['speed']}"
+                             f"      {msg['eta']} left      {msg['size']}")
 
                 elif kind == "title":
                     self.title_label.config(text=msg["text"])
@@ -1024,20 +1175,20 @@ class DownloaderApp(tk.Tk):
 
                 elif kind == "done":
                     self.progress["value"] = 100
-                    self.title_label.config(text="Completed")
+                    self.finished_folder = msg["folder"]
+                    self._finish("Finished",
+                                 f"Saved to {msg['folder']}", SUCCESS)
                     self.log_msg(f"Saved to: {msg['folder']}")
-                    self._reset_buttons()
 
                 elif kind == "cancelled":
-                    self.title_label.config(text="Cancelled")
                     self.progress["value"] = 0
+                    self._finish("Cancelled", "Nothing was saved.", SECONDARY)
                     self.log_msg("Download cancelled.")
-                    self._reset_buttons()
 
                 elif kind == "error":
-                    self.title_label.config(text="Failed")
+                    self._finish("Could not download that one",
+                                 "See the Activity log below.", DANGER)
                     self.log_msg(f"ERROR: {msg['text']}")
-                    self._reset_buttons()
                     messagebox.showerror(APP_NAME, msg["text"])
 
         except queue.Empty:
