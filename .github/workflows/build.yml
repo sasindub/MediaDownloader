@@ -20,7 +20,10 @@ jobs:
         include:
           # macos-14 runners are Apple Silicon, macos-13 are Intel.
           # PyInstaller cannot cross compile, so each needs its own runner.
-          - os: macos-14
+          # macos-latest tracks the current Apple Silicon image. Pinning an
+          # old number is what broke this: GitHub retires those images and
+          # the job then queues forever instead of failing.
+          - os: macos-latest
             label: macOS Apple Silicon
             artifact: MediaDownloader-macOS-arm64.dmg
           # macos-13 was retired by GitHub and jobs targeting it queue
